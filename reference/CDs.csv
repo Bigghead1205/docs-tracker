@@ -1,0 +1,5 @@
+Ecuss CDs report,,,
+,,,
+CDs No.,CDs Type,Invoice,Bill
+{CDs_12digits},{CDs_Type},{INVOICE},{Bill}
+{CDs_12digits},{CDs_Type},{INVOICE},{Bill}
