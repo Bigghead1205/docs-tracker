@@ -1,47 +1,47 @@
-"""
-Crawler module for Docs Tracker.
+"""Crawler utilities for Docs Tracker.
 
-This module provides a simple function to scan a root directory and return
-information about its immediate subfolders and contained files. Each
-subdirectory under the root is treated as a single invoice when the
-application runs in per‑invoice or per‑CDs mode.
+This module scans a root directory and yields information about its immediate
+subfolders. Each subfolder is considered a **shipment folder** (``Folder``
+= Shipment/Bill) in accordance with the project README and WORKFLOW
+specifications.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Iterator, List, Dict
+from typing import Dict, List
 
 from .utils import list_immediate_subfolders, list_files
 
 
-def scan_root_invoices(root: Path) -> List[Dict[str, object]]:
-    """Scan ``root`` and return a list of invoice records.
-
-    Each immediate subdirectory of ``root`` is treated as an invoice folder. The
-    function returns a list of dictionaries with keys:
-
-    - ``invoice``: the name of the subfolder (invoice identifier)
-    - ``folder``: the full Path object for the subfolder
-    - ``files``: a list of Path objects of all files directly inside the subfolder
+def scan_root_shipments(root: Path) -> List[Dict[str, object]]:
+    """Scan ``root`` and return a list of shipment folder records.
 
     Parameters
     ----------
     root : Path
-        The root directory containing invoice subfolders.
+        The root directory containing shipment subfolders.
 
     Returns
     -------
     List[Dict[str, object]]
-        A list of dictionaries with information about each invoice.
+        A list of dictionaries where each entry describes one shipment
+        folder and contains:
+
+        - ``folder``: the folder name (shipment identifier)
+        - ``path``: :class:`~pathlib.Path` object of the folder
+        - ``files``: list of :class:`~pathlib.Path` objects for files directly
+          inside the folder
     """
-    invoices: List[Dict[str, object]] = []
+
+    shipments: List[Dict[str, object]] = []
     for sub in sorted(list_immediate_subfolders(root)):
-        inv = sub.name.strip()
+        folder_name = sub.name.strip()
         files = list(list_files(sub))
-        invoices.append({
-            "invoice": inv,
-            "folder": sub,
+        shipments.append({
+            "folder": folder_name,
+            "path": sub,
             "files": files,
         })
-    return invoices
+    return shipments
+
