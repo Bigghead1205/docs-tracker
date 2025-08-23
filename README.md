@@ -1,199 +1,142 @@
-# 📦 Docs Tracker UI — Project Overview
+# 📦 Docs Tracker UI — README (Updated)
 
-## 1. Mục tiêu
-**Docs Tracker UI** là công cụ giúp **theo dõi và đối chiếu chứng từ xuất nhập khẩu** phục vụ kiểm tra sau thông quan. Hệ thống quét các thư mục chứng từ lưu trữ, đối chiếu với dữ liệu chuẩn từ **Master CDs** (bao gồm `CDs`, `Invoice`, `Bill`, `CDsType`), áp ma trận quy định trong `template.csv`, và tạo báo cáo tổng hợp về tình trạng đầy đủ/thiếu/sai của từng loại chứng từ.
-
-### Điểm nổi bật
-
-- **Nhập Master CDs** (CSV hoặc Parquet) để làm nguồn duy nhất xác định `CDs`, danh sách invoice thuộc cùng tờ khai, loại tờ khai (`CDsType`) và số vận đơn (`Bill`).
-- **Quét thư mục**: mỗi thư mục con (1 cấp) được coi là một `Invoice`. Công cụ chỉ đọc tên tệp, không mở nội dung.
-- **Nhận diện chứng từ**: sử dụng pattern trong `reference/syntax.csv` để xác định các loại chứng từ D01..D12 và trích token (`CDs`, `Bill`, `Booking`, …) từ tên file.
-- **Áp quy tắc**: dựa trên `CDsType` tra trong `reference/template.csv` để biết Dxx nào bắt buộc (`Yes` hoặc `{Token}`) hay không áp dụng (`Null`), từ đó gắn trạng thái **Yes / No / Mismatch / Null**.
-- **Báo cáo**: xuất hai định dạng báo cáo (`CSV` và `Parquet`) kèm theo **Manifest SHA‑256** để đảm bảo tính toàn vẹn. Một dòng báo cáo tương ứng một **CDs** (nếu dùng Master) hoặc một **Invoice** (nếu không có Master).
-
-## 2. Tính năng chi tiết
-
-### Per‑CDs mode (khuyến nghị)
-Nếu bạn cung cấp file **Master CDs**, công cụ sẽ hoạt động theo chế độ per‑CDs:
-
-1. **Đọc Master**: nạp bảng có các cột `CDs`, `Invoice`, `Bill`, `CDsType`.
-2. **Gom theo CDs**: tập hợp danh sách invoice thuộc cùng tờ khai (`CDs`), lấy `CDsType` và `Bill` (nếu có).
-3. **Quét thư mục**: mỗi thư mục con trong thư mục gốc được coi là một invoice. Tất cả tệp trong đó đều được thu thập và nhận diện loại chứng từ.
-4. **Gộp file theo CDs**: gộp các file của tất cả invoice thuộc cùng tờ khai thành một tập file duy nhất.
-5. **Tra template**: lấy `CDsType` của tờ khai → tra trong `template.csv` để biết chứng từ nào bắt buộc. So khớp file:
-   - `D01` phải chứa đúng `CDs` (12 hoặc 13 chữ số).
-   - `D08` (`BL/AWB/RWB`) phải chứa đúng `Bill` (nếu có trong Master).
-   - Các `Dxx` khác: tuân theo rule, token `{INVOICE}` nghĩa là tên file phải chứa một trong các invoice thuộc tờ khai.
-   - Kết quả mỗi Dxx: `Yes` (có file đúng), `No` (thiếu file), `Mismatch` (có file nhưng token sai), `Null` (không áp dụng).
-6. **Xuất báo cáo**: một dòng cho mỗi `CDs`, gồm `CDs`, danh sách `Invoices` (nối bằng dấu `-`), `CDsType`, `Bill`, các cột `D01..D12`, và các cột `MissingDocs`, `MismatchDocs`, `Issues` để ghi chú lỗi.
-
-### Per‑Invoice mode
-Nếu bạn không cung cấp Master CDs, công cụ sẽ quét từng invoice độc lập:
-
-1. **Quét thư mục**: mỗi subfolder = một invoice.
-2. **Nhận diện Dxx**: dựa trên `syntax.csv`.
-3. **Áp rule**: dùng một rule chung (từ một dòng mẫu trong `template.csv`) để đánh dấu `Yes`/`No`/`Null`. Chế độ này ít chính xác hơn.
-4. **Xuất báo cáo**: một dòng cho mỗi invoice.
-
-## 3. Cấu trúc thư mục
-
-```
-docs-tracker-ui/
-├─ README.md                      # Tài liệu tổng quan (file này)
-├─ requirements.txt               # Danh sách thư viện Python cần cài
-├─ reference/                      # File cấu hình chuẩn
-│  ├─ template.csv                 # Ma trận yêu cầu chứng từ theo CDsType
-│  └─ syntax.csv                   # Pattern tên file theo DocType D01..D12
-├─ src/docs_tracker/               # Mã nguồn chính
-│  ├─ __init__.py
-│  ├─ ui_app.py                    # Streamlit app
-│  ├─ crawler_simple.py            # Quét thư mục 1 cấp con
-│  ├─ filename_parser.py           # Nhận diện DocType và trích token từ tên file
-│  ├─ rule_engine.py               # Đọc và áp quy tắc từ template.csv
-│  ├─ reporter.py                  # Ghi báo cáo (CSV/Parquet) và manifest
-│  ├─ legit_guard.py               # Định chỗ cho ký số/HMAC (chưa dùng)
-│  └─ utils.py                     # Hàm tiện ích (hash, atomic write,...)
-├─ run/
-│  ├─ start_ui.bat                 # Script chạy UI (Windows)
-│  └─ start_ui.sh                  # Script chạy UI (Linux/Mac)
-└─ docs/
-   └─ WORKFLOW.md                  # Mô tả chi tiết luồng xử lý
-```
-
-## 4. Sơ đồ luồng xử lý (Per‑CDs mode)
-
-```
-┌───────────────┐     ┌──────────────────┐
-│  Master CDs   │     │  Folder gốc      │
-│ (per-CDs base)│     │ (subfolder=INV)  │
-└───────┬───────┘     └─────────┬────────┘
-        │ load                   │ scan 1 cấp (per INV)
-        ▼                        ▼
-  group by CDs           index files by Invoice
- (collect Invoices)      (DocType via syntax + tokens)
-        │                        │
-        └──────────────┬─────────┘
-                       ▼
-               union files for
-              each CDs over all
-                its Invoices
-                       │
-           + get CDsType from master
-           + get rule set (template)
-                       │
-                       ▼
-            validate per-CDs set:
-       Dxx = Yes / No / Mismatch / Null
-       (extra docs allowed; duplicates flag)
-                       │
-                       ▼
-    output 1 dòng / 1 CDs:
-    CDs | InvoicesCombined | CDsType | Bill | D01..D12 | MissingDocs | ...
-```
-
-## 5. Pseudo‑code chi tiết
-
-```pseudo
-# 1) Load inputs
-master   = read_table(master_path)
-template = load_template(template.csv)
-patterns = load_syntax_patterns(syntax.csv)
-
-# 2) Chuẩn hoá master
-by_cds = master.groupby("CDs").agg({
-    "CDsType": first,
-    "Bill": first,
-    "Invoice": list_unique
-})
-
-# 3) Scan filesystem (per Invoice)
-file_index = []
-for sub in list_subfolders(root):
-    inv = sub.name
-    for f in list_files(sub):
-        stem   = file_stem(f)
-        dcode  = match_doc_type(stem, patterns, inv) or "UNKNOWN"
-        tokens = extract_tokens(stem, dcode)
-        file_index.append({
-          "Invoice": inv,
-          "DocType": dcode,
-          "Tokens": tokens
-        })
-
-# 4) Đối chiếu per‑CDs
-results = []
-for cds, row in by_cds:
-    cdstype = row.CDsType
-    bill    = row.Bill
-    invs    = row.Invoice
-    files_cds = filter(file_index, Invoice in invs)
-    reqs = template[cdstype]
-
-    d_status  = {}
-    missing   = []
-    mismatch  = []
-    duplicates = []
-    for d in D01..D12:
-        rule = reqs[d]
-        if rule == "Null":
-            d_status[d] = "Null"
-            continue
-        files_d = files_cds where DocType == d
-        if none(files_d):
-            d_status[d] = "No"
-            missing.append(d)
-            continue
-        oks = []
-        for rf in files_d:
-            ok = True
-            if d == "D01":
-                ok = (rf.Tokens["CDs"] == cds)
-            elif d == "D08" and bill:
-                ok = (rf.Tokens.get("Bill","") == bill)
-            if "{INVOICE}" in rule and not any(inv in rf.Stem for inv in invs):
-                ok = False
-            if ok: oks.append(rf)
-        if none(oks):
-            d_status[d] = "Mismatch"
-            mismatch.append(d)
-        elif len(oks) > 1:
-            d_status[d] = "Yes"
-            duplicates.append(d)
-        else:
-            d_status[d] = "Yes"
-
-    issues = []
-    if duplicates: issues.append("Duplicate:" + join(duplicates))
-    results.append({
-      "CDs": cds,
-      "Invoices": join(invs, "-"),
-      "CDsType": cdstype,
-      "Bill": bill,
-      **d_status,
-      "MissingDocs": join(missing, ";"),
-      "MismatchDocs": join(mismatch, ";"),
-      "Issues": join(issues, ";")
-    })
-
-# 5) Xuất output
-write_csv(results, root/report.csv)
-write_parquet(results, root/report.parquet)
-write_manifest_sha256(...)
-```
-
-## 6. Yêu cầu hệ thống
-- Python ≥ 3.11
-- Cài đặt phụ thuộc:
-  ```bash
-  pip install -r requirements.txt
-  ```
-- Chạy UI:
-  ```bash
-  streamlit run src/docs_tracker/ui_app.py
-  ```
-- Chạy script:
-  - Windows: `run\start_ui.bat`
-  - Linux/Mac: `bash run/start_ui.sh`
+> **Scope:** Aligns the tool with the newest **bases** and **scenarios**:
+> - **Master basis:** `CDs` (per–CDs master list)
+> - **Folder basis:** `Shipment (Bill)` (each **folder is a shipment**)
+> - Fully covers: **1 folder, 1 CDs, 1 Invoice** · **1 folder, 1 CDs, n Invoice** · **1 folder, n CDs, n Invoice** · **1 folder, n CDs, 1 Invoice**
+> - Dual run modes: **Upload Master CDs** (recommended) **or** **Filter per folder** (Shipment mode)
 
 ---
-Để biết chi tiết hơn về quy trình và các bước triển khai, xem thêm trong `docs/WORKFLOW.md`.
+
+## 1) Goals
+**Docs Tracker UI** helps **track and reconcile import/export documents** for post‑customs audits. The app scans shipment folders, recognizes files by naming **syntax**, applies **rules** per `CDsType` in `template.csv`, and produces a compliance report per **CDs** (if Master is supplied) or per **Shipment/Folder** (if not).
+
+### Highlights
+- **Single source of truth** from **Master CDs** (`CDs`, `Invoice`, `Bill`, `CDsType`).
+- **Folder = Shipment (Bill)**: each subfolder is one shipment; may contain files of **one or many CDs** and **one or many Invoices**.
+- **Smart document recognition** via `reference/syntax.csv`.
+- **Rules matrix** via `reference/template.csv` → marks **Yes / No / Mismatch / Null**, with duplicates and unknowns noted.
+- **Deterministic outputs** as CSV and Parquet + **SHA‑256 manifest**.
+
+---
+
+## 2) Bases and Scenarios
+
+### 2.1 Bases
+- **Master basis:** `CDs` (12‑digit barcode/number). Used to **group** invoices and fetch `CDsType`, `Bill`.
+- **Folder basis:** `Shipment (Bill)`. Every shipment folder can hold files for:
+  - multiple **Invoices** of the same or different `CDs`,
+  - multiple **CDs** of the same shipment **Bill** (or even different Bills if the data is messy; the engine will flag mismatches).
+
+### 2.2 Scenarios (covered)
+| Scenario ID | Folder (=Shipment) | CDs in folder | Invoices in folder | Supported |
+|---|---|---:|---:|---|
+| S1 | 1 | 1 | 1 | ✅ |
+| S2 | 1 | 1 | n | ✅ |
+| S3 | 1 | n | n | ✅ |
+| S4 | 1 | n | 1 | ✅ |
+
+Engine behavior is **consistent** across scenarios because files are reconciled **per‑CDs** (with Master) or **per‑Folder/Shipment** (without Master).
+
+---
+
+## 3) Run Modes
+
+### A) **Per‑CDs mode** (Recommended)
+Upload **Master CDs** (CSV/Parquet) with at least: `CDs`, `Invoice`, `CDsType`, `Bill`.
+- Folders are scanned **one level deep** (each subfolder = a shipment).
+- Files are **indexed** by their DocType (D01..D12) using `syntax.csv` and **tokens**.
+- For each **CDs**, the engine unions all files from **all invoices** belonging to that `CDs` (even across multiple shipment folders if present), then applies rules for its `CDsType` from `template.csv`.
+
+### B) **Per‑Folder (Shipment) mode**
+- No Master supplied.
+- Each folder is validated **as its own shipment unit**. Rules are applied using a **generic/fallback** row in `template.csv`.
+- Output granularity: **one line per folder**. `CDs` and `CDsType` may be empty if not inferable.
+
+> You can toggle between modes in UI by **providing** or **omitting** the Master file.
+
+---
+
+## 4) Key File Conventions
+
+### 4.1 Syntax (`reference/syntax.csv`)
+Define regex‑like name patterns for document types **D01..D12** and token capture. Example for **D01** (used to map CDs ↔ Invoice):
+```
+DocType, Pattern, Notes
+D01, {INVOICE}_ToKhaiHQ7N_QDTQ_{CDs_12digits}, "Declaration sheet used for CDs–Invoice mapping"
+```
+Guidelines:
+- `{INVOICE}` → literal invoice code in file name
+- `{CDs_12digits}` or `{pCDs_12digits}` → exactly 12 digits
+- Other `{TOKEN}` blocks → token fragments (use alnum/underscore blocks in implementation)
+
+### 4.2 Rules (`reference/template.csv`)
+Matrix per `CDsType` (E11, E15, H11, …) for **D01..D12** with values:
+- `Null` → not applicable
+- `Yes` → mandatory, token‑agnostic
+- `{TOKEN}` → mandatory and must contain/validate token (e.g., `{INVOICE}`, `{Bill}`)
+
+**Special checks**
+- **D01** must match **exact `CDs`** (12 digits) and the **Invoice** in the same file name.
+- **D08** (BL/AWB/RWB) must match **`Bill`** from Master when provided.
+
+---
+
+## 5) Outputs
+
+- `report_YYYYMMDD_HHMM.csv`
+- `report_YYYYMMDD_HHMM.parquet`
+- `REPORT.MANIFEST.json` + `*.sha256` for integrity
+
+**Columns (per‑CDs mode):**
+```
+CDs | InvoicesCombined | CDsType | Bill | D01..D12 | MissingDocs | MismatchDocs | Issues
+```
+**Columns (per‑Folder mode):**
+```
+Folder | Bill? | InvoicesFound | CDsFound | D01..D12 | MissingDocs | MismatchDocs | Issues
+```
+
+---
+
+## 6) Data Model (for future DB/Lake)
+
+### 6.1 Tables
+- **T_MasterCDs** (`CDs` PK, `CDsType`, `Bill` nullable)
+- **T_CDsInvoice** (`CDs`, `Invoice`) — many‑to‑many mapping (built from Master and/or D01)
+- **T_Files** (`FileId` PK, `Folder`, `Stem`, `Ext`, `DocType`, tokens JSON, `SHA256`, `SeenAt`)
+- **T_Results** (grain depends on mode: `CDs` or `Folder`, with `D01..D12`, `MissingDocs`, `MismatchDocs`, `Issues`)
+
+### 6.2 Principles
+- **Immutable facts**: never rewrite raw scans; append with `SeenAt`.
+- **Deterministic transforms**: version `syntax.csv` and `template.csv`.
+- **Reproducible reports**: store manifest and engine version.
+
+---
+
+## 7) How to Run
+
+### 7.1 Requirements
+- Python ≥ 3.11
+- Install deps:
+```bash
+pip install -r requirements.txt
+```
+
+### 7.2 UI
+```bash
+streamlit run src/docs_tracker/ui_app.py
+```
+
+### 7.3 CLI (optional)
+```bash
+python -m docs_tracker.scan --root "D:/Shipments" --master "D:/master_cds.parquet"
+```
+
+---
+
+## 8) Notes for CodeGen (codex)
+- Treat **Master presence** as a hard switch for **per‑CDs** vs **per‑Folder**.
+- Implement D01 strict mapping per pattern above; use it to **reconcile missing Master links**.
+- Allow **multi‑CDs per folder** and **multi‑Invoices per CDs** without ambiguity by **unioning files per grain**.
+- Emit **Duplicates**, **Unknown DocTypes**, and **Token mismatch** diagnostics to `Issues`.
